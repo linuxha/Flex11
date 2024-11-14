@@ -1,6 +1,10 @@
 # Flex11
 Flex OS for the Mini-8E MC68HC11 boards
 
+# Status
+
+This currently is a project that is under construction. We're building a 68HC11 board and trying to get Flex recompiled for the 68HC11 instead of the 6800. Right now we're gathering up the resources and testing out the code but nothing has bee built.
+
 # Commands
 
 ```
