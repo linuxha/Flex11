@@ -1,0 +1,638 @@
+	include "asl.inc"
+;*[ Start ]*********************************************************************
+        NAM "WINCHESTER DISK DRIVER"    ;*
+        OPT PAGE                        ;*
+        PAG                             ;*
+;* WINCHESTER DISK DRIVER FOR WD1002-HD0 CONTROLLER
+;*
+;* COPYRIGHT 1984 PERIPHERAL TECHNOLOGY
+;*     ALL RIGHTS RESERVED
+;*
+;* LAST CHANGE 5/25/85 for the WD1002 Origional Code
+
+
+;* Rewritten 9/1/21 for IDE register layout + LBA mode
+;* Changed 9/7/21 to move boot command code here
+;* Modified 9/11/21 FOR 6800
+;* LAST CHANGE 10/8/21 - SO I CAN TELL WHICH IS LATEST VERSION
+
+
+;* Modernized for IDE/SD card used with PT-HDO-IDE adapter.
+;* PT-HDO board converts the pin outs of the WD1002-HDO port to
+;* IDE Pin outs.
+
+
+;* for purpose of this driver, the IDE device is put in LBA mode.
+;* This make for faster performance and a simpiler and faster driver.
+
+
+;* Drive arrangement for this rewrite is for 16MB partitions
+;* You may format a smaller size, but the driver works in 16MB blocks
+;*  IDE/SD devices use 512 byte sector size and 16 bit transfer per read.
+;*  Because devices are cheap and the 6809 and FLEX are 8 bit
+;*  devices, half of the data is discarded.  Only 8 of the 16 bits
+;*  is read/written.  The extra complexity of hardware and the extra overhead
+;*  of software to block and unblock 512 byte sectors in not worth
+;*  the effort for the hardware changes or the loss in performance
+;*  to block/unblock 512 byte sectors to 256.
+
+
+;* A $4 32GB SD card would support over 1000 16MB partitions. So there is
+;* no reason to be concerned about the loss of half of the data capacity.
+
+
+;* Offset is the number of 16MB offsets for the partition being accessed.
+
+
+;* DRIVE DESCCRIPTORS - WINCHESTER
+
+
+;* Don't delete any of the unused space in the descriptor,  the size must
+;* be the same as the floppy desctiptor, which needs the extra space.
+
+
+        ORG  0  ;* 
+
+
+DISK    RMB  1          ;* 0=FLOPPY  <>0 - WINCHESTER
+DRVNO   RMB  1          ;* HARDWARE DRIVE NUMBER - Must be 0 or 1
+STEP    RMB  1          ;* Not used  was STEP RATE
+INIT    RMB  1          ;* 0=NOT INITIALIZED
+SHIFT   RMB  1          ;* Not used  was  <9 NUMBER OF SHIFTS >8 DIV
+HMASK   RMB  1          ;* Not used  was  HEAD MASK
+OFFSET  RMB  2          ;* Partition OFFSET - number of 16MB offsets
+DRVSIZ  EQU  *          ;* 
+
+
+;* ADDRESS DEFINITIONS FOR FLEX LOADER
+
+
+        ORG  $A100      ;* Address where SECTOR 1 LOADED
+        RMB  5          ;*
+LTRKNO  RMB  2          ;* CYLINDER to load FLEX from
+LSECNO  RMB  1          ;* SECTOR TO LOAD FLEX FROM
+XFER    RMB  2          ;* TRANSFER ADDRESS
+LDPTR   RMB  2          ;* LOAD POINTR ADDRESS
+PNTR    RMB  2          ;* BUFFER NEXT READ POINTER
+LBUF    EQU  *          ;* 
+LDATA   EQU  LBUF+4     ;* 
+DATEND  EQU  LBUF+256   ;* 
+
+
+
+
+PDATA1  EQU  $E07E      ;* SWTBUG PRINT STRING
+SWTBUG  EQU  $E0E3      ;* RETURN TO SWTBUG
+STACK1  EQU  $A07F      ;* START ADDRESS OF STACK
+DRTMP   EQU  $BE95      ;* 
+
+
+;* FLOPPY DRIVER EQUAT
+DRVPTR  EQU  $BE0F      ;* DESCRIPTOR POINTER
+
+
+;* PORT DEFINITION
+
+
+BASADR  EQU  $8008      ;* 
+
+
+DATA    EQU  BASADR     ;* DATA REGISTER
+ERROR   EQU  BASADR+1   ;* ERROR REGISTER
+WPC     EQU  BASADR+1   ;* WRITE PRECOMP REGISTER
+SECNT   EQU  BASADR+2   ;* SECTOR COUNT
+SECNO   EQU  BASADR+3   ;* SECTOR NUMBER
+CYLLO   EQU  BASADR+4   ;* CYLINDER NUMBER (LSB)
+CYLHI   EQU  BASADR+5   ;* CYLINDER NUMBER (MSB)
+SDH     EQU  BASADR+6   ;* SIZE/DRIVE/HEAD REGISTER
+STATUS  EQU  BASADR+7   ;* STATUS REGISTER
+COMREG  EQU  BASADR+7   ;* COMMAND REGISTER
+
+
+;* COMMAND DEFINITIONS
+
+
+READCM  EQU  $20        ;* READ COMMAND
+WRTCMD  EQU  $30        ;* WRITE COMMAND
+
+
+        PAG             ;*
+
+
+        ORG  $E600      ;* 
+
+
+;* DISK JUMP TABLE
+
+
+READ    JMP  READ1      ;*
+WRITE   JMP  WRITE1     ;*
+VERIFY  JMP  VER1       ;*
+RESTOR  JMP  REST1      ;*
+DRVSEL  JMP  DRVSL1     ;*
+CDRRDY  JMP  CDRR1      ;*
+QDRRDY  JMP  CDRR1      ;*
+DCOLDS  JMP  DCOLD      ;*
+DWARMS  JMP  RTS        ;*
+IBOOT   JMP  WBOOT      ;* Boot from IDE XXXXXXXX
+
+
+;***********************
+;* READ SECTOR COMMAND *
+;***********************
+;* Entry
+;* X - Address to place sector - 256 bytes
+;* A - Sector Number
+;* B - Track Number
+;* Exit
+;* X,A May be destroyed
+;* B - Error Code
+;* Z - 1 if no error
+;* Z - 0 if an error
+
+
+READ1   EQU  *          ;* 
+        JSR  TSKSET     ;* SET UP TASK REGISTERS
+        LDAA #READCM    ;* GET READ COMMAND (l == 2)
+        STAA COMREG     ;* ISSUE COMMAND TO WD1002-HD0 (l == 2)
+READ2   LDAA STATUS     ;* READ STATUS XXXXXXXX
+        ASLA            ;* WAIT FOR BUSY TO CLEAR (l == 2)
+        BCS  READ2      ;* 
+
+
+        LDAB #128       ;* LOOP COUNTER (l == 2)
+READ3   LDAA DATA       ;* GET DATA XXXXXXXX
+        STAA 0,X        ;* STORE IT
+        INX             ;* INCREMENT STORE POINTER (l == 2)
+        LDAA DATA       ;* GET DATA (l == 2)
+        STAA 0,X        ;* STORE IT (l == 2)
+        INX             ;* INCREMENT STORE POINTER (l == 2)
+        DECB            ;* DECREMENT LOOP COUNTER (l == 2)
+        BNE  READ3      ;* CONTINUE LOOPING UNTIL 256 BYTES XFERED
+        LDAA STATUS     ;* GET STATUS (l == 2)
+        BITA #1         ;* ERROR BIT (l == 2)
+        BEQ  READ4      ;* BRANCH IF NO ERROR
+        LDAB #$10       ;* SET ERROR CODE (l == 2)
+        SEC             ;* 
+        RTS             ;* 
+READ4   CLRB            ;* NO ERROR CODE XXXXXXXX
+        RTS             ;* 
+
+
+;*****************
+;* WRITE COMMAND *
+;*****************
+;*
+;* X - Address of 256 bytes to be written
+;* A - Track Number
+;* B - Sector Number
+;* EXIT
+;* X,A may be destroyed
+;* B - Error Code - 0=None
+;* Z - Z=1 if no error
+;* Z - Z=0 if error
+
+
+WRITE1  EQU  *          ;* 
+        JSR  TSKSET     ;* SET UP TASK REGISTERS
+        LDAA #WRTCMD    ;* GET WRITE COMMAND (l == 2)
+        STAA COMREG     ;* ISSUE TO WD1002-HDO (l == 2)
+WRITE6  LDAA STATUS     ;* READ STATUS XXXXXXXX
+        ASLA            ;* SHIFT BUSY BIT TO CARRY (l == 2)
+        BCS  WRITE6     ;* LOOP UNTIL NOT BUSY
+
+
+        LDAB #128       ;* LOOP COUNTER (l == 2)
+WRITE2  LDAA 0,X        ;* GET DATA TO STORE XXXXXXXX
+        STAA DATA       ;* STORE IT (l == 2)
+        INX             ;* INCREMENT NEXT DATA POINTER (l == 2)
+        LDAA 0,X        ;* GET DATA (l == 2)
+        STAA DATA       ;* STORE IT (l == 2)
+        INX             ;* INCREMENT NEXT DATA POINTER (l == 2)
+        DECB            ;* DECREMENT LOOP COUNTER (l == 2)
+        BNE  WRITE2     ;* CONTINUE LOOPING UNTIL 256 BYTES XFERED
+WRITE3  LDAA STATUS     ;* GET STATUS XXXXXXXX
+        BITA #$80       ;* BUSY? (l == 2)
+        BNE  WRITE3     ;* BRANCH WHILE BUSY
+        BITA #1         ;* ERROR BIT (l == 2)
+        BNE  WRITE4     ;* BRANCH ERROR
+        CLRB            ;* CLEAR ERROR FLAG (l == 2)
+        RTS             ;*
+ 
+WRITE4  LDAB ERROR      ;* GET ERROR FROM WD1002/IDE XXXXXXXX
+        SEC             ;* 
+        RTS             ;* 
+
+
+;**********************
+;* VERIFY DISK DRIVER *
+;**********************
+;*
+;* The sector just written is to be verified.
+;* This routine only called immediately after a write
+;* 
+;* Entry
+;* No parameters are given
+;* Exit
+;* X,A may be destroyed
+;* B - Error code - 0=none
+
+
+;*  warning warning Will Robinson -------------------------------
+;*  ---------- IT PROBABLY DOESN'T WORK -------------------
+;*  UNLESS TO READ COMMAND CAN BE CANCELED THIS ROUTINE
+;*  LEAVES THE DRIVE IN A BUSY STATE UNTIL
+;* 256 READS CAN BE PERFORMED ON THE DATA REGISTER
+
+
+;ER1  CLRB --------------------------- EXIT -  ROUTINE NOT VIABLE
+VER1    CLRB            ;* EXIT -  ROUTINE NOT VIABLE XXXXXXXX
+        RTS             ;* 
+
+
+;*       LDA  #READCM
+;*       STA  COMREG
+;*VER2   LDA  STATUS
+;*       BITA #$80
+;*       BNE  VER2
+;*       BITA #1
+;*       BNE  VER3
+;*       CLRB
+;*       RTS
+;*VER3   LDB  ERROR
+;*       SEC
+RTS     RTS             ;* (LABEL/NM only?)
+
+
+;***********************
+;* TASK SET-UP ROUTINE *
+;***********************
+
+
+
+
+;* INPUT D=LOGICAL SECTOR NUMBER
+;*    A = TRACK  B=SECTOR
+;* 
+;*
+;* Driver currently supports only 256 partitions
+;*
+;* OUTPUT IDE registers set
+;*
+
+
+TSKSET  STAB SECNO      ;* Set LSB of LSN XXXXXXXX
+        STAA CYLLO      ;* Set MSB of LSN (l == 2)
+        STX  DRTMP      ;* SAVE X
+        LDX  DRVPTR     ;* point to descriptor
+        LDAA OFFSET+1,X ;* get parttion number (l == 2)
+        STAA CYLHI      ;* (l == 2)
+        LDAA DRVNO,X    ;* Get drive Number (l == 2)
+        LDX  DRTMP      ;* RESTORE X REGISTER
+        ASLA            ;* Put in corrent bit position (l == 2)
+        ASLA            ;* 
+        ASLA            ;* 
+        ASLA            ;* 
+        ORAA #$E0       ;* Drive number + LBA Mode (l == 2)
+        STAA SDH        ;* Select Drive and LBA (l == 2)
+        LDAA #1         ;* SET FOR ONE SECTOR READ/WRITE (l == 2)
+        STAA SECNT      ;* SET IDE REGISTER (l == 2)
+        RTS             ;* 
+
+
+ 
+
+;*******************
+;* RESTORE COMMAND *
+;*******************
+;*
+;* Drive in the FCB address (3,X contains drive number) DRIVE should be selected
+;* before the RESTORE is performed.
+;*
+;* Entry
+;* X - FCB address - 3,X contains drive number
+;* Exit
+;* X,A - may be destroyed
+;* B - Error code - 0=no error
+
+
+;* While there is nothing to do for a modern drive, FLEX
+;* expects DRIVE SELECT to be called by this routine.  It is therefore
+;* necessary to set the DRVPTR pointer TO POINT AT THE 
+;* PROPER DISK DESCRIPTOR with this routine.
+
+
+REST1   LDAA 3,X        ;* GET DRIVE NUMBER XXXXXXXX
+        LDAB #DRVSIZ    ;* GET DESCRIPTOR SIZE (l == 2)
+
+
+        LDX  #$BE11     ;* BEGINNING ADDRESS OF DRIVE DESCRIPTORS
+        TSTA            ;* TEST FOR DIRVE 0 (l == 2)
+        BEQ  REST5      ;* DRIVE 0 - SAVE POINTER - NOTHING TO DO
+        PSHB            ;* SAVE DESCRIPTOR SIZE (l == 2)
+REST2   INX             ;* INCREMENT UNTIL POINTING TO NEXT DESCRIPTOR XXXXXXXX
+        DECB            ;*
+        BNE  REST2      ;* CONTINUE LOOPING UNTIL NEXT POINTER ADDRESS
+        PULB            ;* RESTORE SIZE OF DESCRIPTOR (l == 2)
+        PSHB            ;* TO PRESERVE STACK POINTER (l == 2)
+        DECA            ;* DECREMENT NUMBER OF DRIVE (l == 2)
+        BNE  REST2      ;* CONTINUE INCREMENTING DESCRIPTOR POINTER UNTIL COMPLETE
+
+
+REST4   PULB            ;* CLEAN UP STACK USAGE XXXXXXXX
+REST5   STX  DRVPTR     ;* SAVE DESCRIPTOR POINTER XXXXXXXX
+
+
+        CLRB            ;* No error CODE (l == 2)
+        RTS             ;* 
+
+
+
+
+;********************
+;* DRIVE READY TEST *
+;********************
+;*
+;* Drive number found in the FCB  should be checked for ready
+;*
+;* Entry
+;* X - FCB address - 3,X contains drive number
+;* Exit
+;* X,A - may be destroyed
+;* B - Error code - 0=no error
+;* -------------------------------------------------------------- THIS ROUTINE SHOULD
+;*                                                      BE CHANGED TO REPORT NOT READY FOR
+;*                                               NON EXISTANT DIRVE  
+CDRR1   LDAA STATUS     ;*
+        BITA #$40       ;* Drive ready bit (l == 2)
+        BEQ  CDRR2      ;* branch for not ready
+        CLRB            ;* clear error flag (l == 2)
+        RTS             ;*
+ 
+CDRR2   LDAB #$80       ;* set not ready error XXXXXXXX
+        SEC             ;* 
+        RTS             ;* 
+
+
+;********************
+;* COLD START - INIT*
+;********************
+;*
+;* Do any driver initialization here when the system is first booted.
+;*
+;* Entry
+;* No parameters are given
+;* Exit
+;* A,B,X,Y,U may be destroyed
+;* No exit code for this routine. Simply issue RTS
+
+
+DCOLD   LDAA STATUS     ;* Get status XXXXXXXX
+        BITA #$80       ;* Test Busy bit (l == 2)
+        BNE  DCOLD      ;* loop until ready
+
+
+;* This would be a good place to insert time out code
+;* and print a message if no drive plugged in
+
+
+        RTS             ;* 
+
+
+;************************
+;* DRIVE SELECT ROUTINE *
+;************************
+;*
+;* Drive specified is selected
+;*
+;* Entry
+;* X - FCB address - (3,X contains drive number)
+;* Exit
+;* X,A may be destroyed
+;* B - $0F error code for non-existant drive
+;* Z - 1=error  0=no error
+;* C - 0=error  1=error
+;*
+;* For this driver, it means the DRVPTR must be set so
+;* READ/WRITE works on the correct drive.
+;*
+;* The drive is selected during the Task setup routine
+;* There is nothing to do to the drive here
+ 
+
+;* USE REST1 ROUTINE SINCE IT WOULD BE THE SAME
+
+
+DRVSL1  BRA  REST1      ;*
+
+
+;*----------------------------------------------------------
+;* Boot from IDE
+;*
+;* This boot no longer uses a Bootstrap loader in sector 1.
+;* The only information on sector 1 is the link to the OS (FLEX)
+
+
+;***********************
+;* 'W' BOOT WINCHESTER *
+;***********************
+
+
+WBOOT   LDS  #STACK1    ;*
+        LDX  #DESCRIP   ;* 
+        STX  DRVPTR     ;* 
+
+
+        CLRA            ;* BOOT TRK0 (l == 2)
+        LDAB #1         ;* BOOT SECTOR (l == 2)
+
+
+        LDX  #$A100     ;* LOAD ADDRESS
+        JSR  READ       ;* 
+        TSTB            ;* 
+        BEQ  WBOOT3     ;* NO ERROR - CHECK FOR LINK PRESENT
+        LDX  #MSGWN2    ;* 
+        JSR  PDATA1     ;* 
+        JMP  SWTBUG     ;* 
+
+
+;* CHECK TO SEE IF DISK IS LINKED
+
+
+WBOOT3
+
+
+
+;* IF TRACK = 0 , THE DRIVE IS NOT LINKED.
+
+
+        TST  LTRKNO     ;* TEST TRACK NUMBER
+        BNE  LDFLEX     ;* LOAD FLEX
+        LDX  #MSGWN3    ;* NOT LINKED MESSAGE
+        JSR  PDATA1     ;* 
+        JMP  SWTBUG     ;* JUMP TO SWTBUG
+
+
+MSGWN1  FCB  $D,$A,$A   ;* 
+        FCC "WAITING FOR DISK TO SPIN UP"       ;*
+        FCB 4   ;*
+
+
+MSGWN2  FCB  $D,$A      ;* 
+        FCC "ERROR READING BOOT SECTOR" ;*
+        FCB  $D,$A       ;*
+        FCB  4   ;*
+
+
+MSGWN3  FCB  $D,$A      ;* 
+        FCC  "NOT LINKED"        ;*
+        FCB  $D,$A       ;*
+        FCB  4   ;*
+
+
+
+
+;*---------------------------------------------------------------
+;* FLEX LOADER
+;*
+;* Load FLEX from the LINK in provided in sector 1
+
+
+
+
+DESCRIP EQU  *          ;* 
+
+
+;* DRIVE DESCRIPTOR LOADED HERE
+
+
+DESWIN  FCB  1          ;* WINCHESTER
+        FCB  0          ;* HARDWARE DRIVE NUMBER
+        FCB  0          ;*
+        FCB  0          ;*
+        FCB  0          ;*
+        FCB  0          ;*
+        FDB  0          ;* TRACK OFFSET
+
+
+;* INITIALIZE TEMP STORAGE
+
+
+LDFLEX  EQU  *          ;* 
+
+
+        LDX  #0         ;* 
+        STX  XFER       ;* 
+        STX  LDPTR      ;* 
+        STX  PNTR       ;* 
+        BRA  START1     ;* 
+
+
+REDSEC  LDAA LTRKNO     ;* GET STARTING TRACK XXXXXXXX
+        LDAB LTRKNO+1   ;* GET STARTING SECTOR
+RESEC1  LDX  #LBUF      ;*
+        JSR  READ       ;* 
+        BCS  FAIL0      ;* YES : RESTART
+        LDX  #LDATA     ;* POINT X AT BEGINNING OF DATA
+        STX  PNTR       ;* SAVE POINTER
+        RTS             ;* 
+
+FAIL0   JMP  FAIL       ;*
+
+
+;*----------------------------------------------------
+;* GET DATA BYTE AND ADVANCE POINTER
+;*  ON END OF BUFFER - READ NEXT SECTOR
+
+
+READAT  LDX  PNTR       ;* GET POINTER XXXXXXXX
+        CPX  #DATEND    ;* END OF DATA?
+        BEQ  REDAT1     ;* YES: READ NEXT SECTOR
+        LDAA 0,X        ;* NO: GET NEXT BYTE (l == 2)
+        INX             ;* 
+        STX  PNTR       ;* SAVE POINTER
+        RTS             ;* 
+
+
+;* READ NEXT SECTOR
+
+
+REDAT1  LDX  #LBUF      ;* POINT TO BEGINNING OF BUFFER XXXXXXXX
+        LDAA 0,X        ;* GET ADDRESS OF NEXT SECTOR
+        LDAB 1,X        ;*        "
+        BSR  RESEC1     ;* READ NEXT SECTOR
+        BRA  READAT     ;* CONTINUE WITH GET NEXT DATA BYTE
+
+
+;*--------------------------------------------------------------------
+;* START OF FLEX LOADER
+
+
+START1  LDX  #DESWIN    ;*
+        STX  DRVPTR     ;* 
+        BSR  REDSEC     ;* READ FIRST SECTOR
+LOAD    BSR  READAT     ;* GET DATA XXXXXXXX
+;* Func1
+        CMPA #$02       ;* TEST FOR LOAD RECORD
+        BEQ  BINREC     ;* 
+        TST  LBUF       ;*
+        BNE  LOAD       ;* 
+        TST  LBUF+1     ;*
+        BNE  LOAD       ;* 
+
+
+;* PROCESS TRANSFER RECORD
+
+
+;* Func1
+        CMPA #$16       ;* TEST FOR TRANSFER RECORD
+        BNE  LOAD       ;* NO - CONTINUE PROCESSING FILE
+        BSR  READAT     ;* GET MSB OF XFER ADDRESS
+        STAA XFER       ;* 
+        BSR  READAT     ;* GET LSB OF XFER ADDRESS
+        STAA XFER+1     ;* 
+        LDX  XFER       ;* GET TRANSFER ADDRESS
+        JMP  0,X        ;* JUMP TO IT
+
+
+;* BINARY FILE LOADER
+
+
+BINREC  BSR  READAT     ;* GET MSB LOAD ADDRESS XXXXXXXX
+        PSHA            ;* 
+        BSR  READAT     ;* GET LSB LOAD ADDRESS
+        PULB            ;* 
+        STAA LDPTR+1    ;* (l == 2)
+        STAB LDPTR      ;* (l == 2)
+        BSR  READAT     ;* GET NUMBER OF BYTES TO LOAD
+        TAB             ;* B=COUNTER OF BYTES TO LOAD (l == 2)
+        BEQ  LOAD       ;* 
+
+
+BINRC1  PSHB            ;* (LABEL/NM only?)
+        BSR  READAT     ;* 
+        PULB            ;* 
+        LDX  LDPTR      ;* 
+        STAA $00,X      ;* (l == 2)
+        INX             ;* 
+        STX  LDPTR      ;* 
+        DECB            ;* DECREMENT COUNTER (l == 2)
+        BNE  BINRC1     ;* 
+        BRA  LOAD       ;* 
+
+
+
+
+FAIL    LDX  #FAILMSG   ;*
+        JSR  PDATA1     ;* 
+        JMP  $E0E3      ;* RESTART PTMON
+
+
+FAILMSG FCC  "LOAD FAILED"
+        FCB  4   ;*
+
+        END             ;* 
+;*[ Fini ]**********************************************************************
+;/* Local Variables: */
+;/* mode:asm         */
+;/* End:             */
