@@ -1,0 +1,35 @@
+***
+*** Taken from lib6800/directpage.s
+***
+*** This occupies 23 bytes. On the 6303Y we have only 0x28 to 0x3F of
+*** banked external memory in the direct page (ie 24 bytes).
+***
+*** I've also taken liberty to rename the labels for disassembly
+***
+LABEL   0028 zero
+LABEL   0029 one
+LABEL   002A one+1
+LABEL   002B reg
+LABEL   002C reg+1
+
+LABEL   002D jmptmp
+LABEL   002E tmp
+LABEL   002F tmp+1
+
+LABEL   0030 tmp1
+LABEL   0031 tmp1+1
+LABEL   0032 tmp2
+LABEL   0033 tmp2+1
+LABEL   0034 tmp3
+LABEL   0035 tmp3+1
+LABEL   0036 tmp4
+LABEL   0037 tmp4+1
+LABEL   0038 fp
+LABEL   0039 fp+1
+
+LABEL   003A reg
+LABEL   003B reg+1
+LABEL   003C reg1
+LABEL   003D reg1+1
+LABEL   003E reg2
+LABEL   003F reg2+1
