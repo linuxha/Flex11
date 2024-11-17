@@ -1,0 +1,96 @@
+; f9dasm: M6800/1/2/3/8/9/H6309 Binary/OS9/FLEX9 Disassembler V1.82
+; Loaded FLEX file VERSION.CMD
+
+;****************************************************
+;* Used Labels                                      *
+;****************************************************
+
+ZA198   EQU     $A198
+ZA1A8   EQU     $A1A8
+ZA1BB   EQU     $A1BB
+ZA1C3   EQU     $A1C3
+SYSFCB  EQU     $A840
+WARMS   EQU     $AD03
+PSTRNG  EQU     $AD1E
+GETFIL  EQU     $AD2D
+SETEXT  EQU     $AD33
+OUTDEC  EQU     $AD39
+RPTERR  EQU     $AD3F
+FMSCLS  EQU     $B403
+FMS     EQU     $B406
+
+;****************************************************
+;* Program Code / Data Areas                        *
+;****************************************************
+
+        ORG     $A100
+
+; ------------------------------------------------------------------------------
+START   BRA     ZA105                    ;A100: 20 03          ' .'
+        NOP                              ;A102: 01             '.'
+MA103   FCB     $00                      ;A103: 00             '.'
+MA104   FCB     $00                      ;A104: 00             '.'
+ZA105   LDX     #SYSFCB                  ;A105: CE A8 40       '..@'
+        JSR     GETFIL                   ;A108: BD AD 2D       '..-'
+        BCS     ZA14B                    ;A10B: 25 3E          '%>'
+        LDAA    #$02                     ;A10D: 86 02          '..'
+        JSR     SETEXT                   ;A10F: BD AD 33       '..3'
+        LDAA    #$01                     ;A112: 86 01          '..'
+        STAA    ,X                       ;A114: A7 00          '..'
+        JSR     FMS                      ;A116: BD B4 06       '...'
+        BNE     ZA14B                    ;A119: 26 30          '&0'
+        JSR     FMS                      ;A11B: BD B4 06       '...'
+        BNE     ZA14B                    ;A11E: 26 2B          '&+'
+        CMPA    #$02                     ;A120: 81 02          '..'
+        BNE     ZA154                    ;A122: 26 30          '&0'
+        LDAA    #$0A                     ;A124: 86 0A          '..'
+        STAA    $23,X                    ;A126: A7 23          '.#'
+        LDAA    #$11                     ;A128: 86 11          '..'
+        STAA    ,X                       ;A12A: A7 00          '..'
+        JSR     FMS                      ;A12C: BD B4 06       '...'
+        BNE     ZA14B                    ;A12F: 26 1A          '&.'
+        CLR     MA103                    ;A131: 7F A1 03       '...'
+        STAA    MA104                    ;A134: B7 A1 04       '...'
+        LDX     #MA16B                   ;A137: CE A1 6B       '..k'
+        JSR     PSTRNG                   ;A13A: BD AD 1E       '...'
+        LDX     #MA103                   ;A13D: CE A1 03       '...'
+        CLRB                             ;A140: 5F             '_'
+        JSR     OUTDEC                   ;A141: BD AD 39       '..9'
+        BRA     ZA14E                    ;A144: 20 08          ' .'
+ZA146   JSR     PSTRNG                   ;A146: BD AD 1E       '...'
+        BRA     ZA14E                    ;A149: 20 03          ' .'
+ZA14B   JSR     RPTERR                   ;A14B: BD AD 3F       '..?'
+ZA14E   JSR     FMSCLS                   ;A14E: BD B4 03       '...'
+        JMP     WARMS                    ;A151: 7E AD 03       '~..'
+ZA154   LDX     #MA159                   ;A154: CE A1 59       '..Y'
+        BRA     ZA146                    ;A157: 20 ED          ' .'
+MA159   ROLA                             ;A159: 49             'I'
+        INCA                             ;A15A: 4C             'L'
+        INCA                             ;A15B: 4C             'L'
+        FCB     $45                      ;A15C: 45             'E'
+        ASRA                             ;A15D: 47             'G'
+        FCB     $41                      ;A15E: 41             'A'
+        INCA                             ;A15F: 4C             'L'
+        BRA     ZA1A8                    ;A160: 20 46          ' F'
+        ROLA                             ;A162: 49             'I'
+        INCA                             ;A163: 4C             'L'
+        FCB     $45                      ;A164: 45             'E'
+        BRA     ZA1BB                    ;A165: 20 54          ' T'
+        ROLB                             ;A167: 59             'Y'
+        NEGB                             ;A168: 50             'P'
+        FCB     $45                      ;A169: 45             'E'
+        FCB     $04                      ;A16A: 04             '.'
+MA16B   BRA     ZA1C3                    ;A16B: 20 56          ' V'
+        FCB     $45                      ;A16D: 45             'E'
+        FCB     $52                      ;A16E: 52             'R'
+        COMB                             ;A16F: 53             'S'
+        ROLA                             ;A170: 49             'I'
+        CLRA                             ;A171: 4F             'O'
+        FCB     $4E                      ;A172: 4E             'N'
+        BRA     ZA198                    ;A173: 20 23          ' #'
+        FCB     4                        ;A175: 04             '.'
+
+        END     START
+;/* Local Variables: */
+;/* mode:asm         */
+;/* End:             */

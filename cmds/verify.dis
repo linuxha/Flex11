@@ -1,0 +1,108 @@
+; f9dasm: M6800/1/2/3/8/9/H6309 Binary/OS9/FLEX9 Disassembler V1.82
+; Loaded FLEX file VERIFY.CMD
+
+;****************************************************
+;* Used Labels                                      *
+;****************************************************
+
+ZA195   EQU     $A195
+ZA1BE   EQU     $A1BE
+ZA1C7   EQU     $A1C7
+ZA1CC   EQU     $A1CC
+ZA1D5   EQU     $A1D5
+EOLCHR  EQU     $AC02
+WARMS   EQU     $AD03
+GETCHR  EQU     $AD15
+PSTRNG  EQU     $AD1E
+NXTCH   EQU     $AD27
+VERIFY  EQU     $B435
+
+;****************************************************
+;* Program Code / Data Areas                        *
+;****************************************************
+
+        ORG     $A100
+
+; ------------------------------------------------------------------------------
+START   BRA     ZA103                    ;A100: 20 01          ' .'
+        NOP                              ;A102: 01             '.'
+ZA103   JSR     NXTCH                    ;A103: BD AD 27       '..''
+        BCS     ZA132                    ;A106: 25 2A          '%*'
+        ANDA    #$5F                     ;A108: 84 5F          '._'
+        CMPA    #$4F                     ;A10A: 81 4F          '.O'
+        BNE     ZA132                    ;A10C: 26 24          '&$'
+        JSR     NXTCH                    ;A10E: BD AD 27       '..''
+        BCS     ZA132                    ;A111: 25 1F          '%.'
+        ANDA    #$5F                     ;A113: 84 5F          '._'
+        CMPA    #$4E                     ;A115: 81 4E          '.N'
+        BEQ     ZA128                    ;A117: 27 0F          ''.'
+        CMPA    #$46                     ;A119: 81 46          '.F'
+        BNE     ZA132                    ;A11B: 26 15          '&.'
+        CLR     VERIFY                   ;A11D: 7F B4 35       '..5'
+ZA120   LDX     #MA16D                   ;A120: CE A1 6D       '..m'
+ZA123   JSR     PSTRNG                   ;A123: BD AD 1E       '...'
+        BRA     ZA15C                    ;A126: 20 34          ' 4'
+ZA128   LDAA    #$FF                     ;A128: 86 FF          '..'
+        STAA    VERIFY                   ;A12A: B7 B4 35       '..5'
+ZA12D   LDX     #MA17B                   ;A12D: CE A1 7B       '..{'
+        BRA     ZA123                    ;A130: 20 F1          ' .'
+ZA132   TST     VERIFY                   ;A132: 7D B4 35       '}.5'
+        BNE     ZA13C                    ;A135: 26 05          '&.'
+        LDX     #MA16D                   ;A137: CE A1 6D       '..m'
+        BRA     ZA13F                    ;A13A: 20 03          ' .'
+ZA13C   LDX     #MA17B                   ;A13C: CE A1 7B       '..{'
+ZA13F   JSR     PSTRNG                   ;A13F: BD AD 1E       '...'
+        LDX     #MA188                   ;A142: CE A1 88       '...'
+        JSR     PSTRNG                   ;A145: BD AD 1E       '...'
+        JSR     GETCHR                   ;A148: BD AD 15       '...'
+        ANDA    #$5F                     ;A14B: 84 5F          '._'
+        CMPA    #$4E                     ;A14D: 81 4E          '.N'
+        BEQ     ZA15C                    ;A14F: 27 0B          ''.'
+        CMPA    #$59                     ;A151: 81 59          '.Y'
+        BNE     ZA132                    ;A153: 26 DD          '&.'
+        COM     VERIFY                   ;A155: 73 B4 35       's.5'
+        BEQ     ZA120                    ;A158: 27 C6          ''.'
+        BRA     ZA12D                    ;A15A: 20 D1          ' .'
+ZA15C   JSR     NXTCH                    ;A15C: BD AD 27       '..''
+        BCC     ZA15C                    ;A15F: 24 FB          '$.'
+        CMPA    #$0D                     ;A161: 81 0D          '..'
+        BEQ     ZA16A                    ;A163: 27 05          ''.'
+        CMPA    EOLCHR                   ;A165: B1 AC 02       '...'
+        BNE     ZA15C                    ;A168: 26 F2          '&.'
+ZA16A   JMP     WARMS                    ;A16A: 7E AD 03       '~..'
+MA16D   RORB                             ;A16D: 56             'V'
+        FCB     $45                      ;A16E: 45             'E'
+        FCB     $52                      ;A16F: 52             'R'
+        ROLA                             ;A170: 49             'I'
+        RORA                             ;A171: 46             'F'
+        ROLB                             ;A172: 59             'Y'
+        BRA     ZA1BE                    ;A173: 20 49          ' I'
+        COMB                             ;A175: 53             'S'
+        BRA     ZA1C7                    ;A176: 20 4F          ' O'
+        RORA                             ;A178: 46             'F'
+        RORA                             ;A179: 46             'F'
+        FCB     $04                      ;A17A: 04             '.'
+MA17B   RORB                             ;A17B: 56             'V'
+        FCB     $45                      ;A17C: 45             'E'
+        FCB     $52                      ;A17D: 52             'R'
+        ROLA                             ;A17E: 49             'I'
+        RORA                             ;A17F: 46             'F'
+        ROLB                             ;A180: 59             'Y'
+        BRA     ZA1CC                    ;A181: 20 49          ' I'
+        COMB                             ;A183: 53             'S'
+        BRA     ZA1D5                    ;A184: 20 4F          ' O'
+        FCB     $4E                      ;A186: 4E             'N'
+        FCB     $04                      ;A187: 04             '.'
+MA188   COMA                             ;A188: 43             'C'
+        ASLA                             ;A189: 48             'H'
+        FCB     $41                      ;A18A: 41             'A'
+        FCB     $4E                      ;A18B: 4E             'N'
+        ASRA                             ;A18C: 47             'G'
+        FCB     $45                      ;A18D: 45             'E'
+        SWI                              ;A18E: 3F             '?'
+        BRA     ZA195                    ;A18F: 20 04          ' .'
+
+        END     START
+;/* Local Variables: */
+;/* mode:asm         */
+;/* End:             */

@@ -1,0 +1,66 @@
+; f9dasm: M6800/1/2/3/8/9/H6309 Binary/OS9/FLEX9 Disassembler V1.82
+; Loaded FLEX file LINK.CMD
+
+;****************************************************
+;* Used Labels                                      *
+;****************************************************
+
+SYSFCB  EQU     $A840
+WARMS   EQU     $AD03
+GETFIL  EQU     $AD2D
+SETEXT  EQU     $AD33
+RPTERR  EQU     $AD3F
+FMSCLS  EQU     $B403
+FMS     EQU     $B406
+
+;****************************************************
+;* Program Code / Data Areas                        *
+;****************************************************
+
+        ORG     $A100
+
+; ------------------------------------------------------------------------------
+START   BRA     ZA103                    ;A100: 20 01          ' .'
+        NOP                              ;A102: 01             '.'
+ZA103   LDX     #SYSFCB                  ;A103: CE A8 40       '..@'
+        JSR     GETFIL                   ;A106: BD AD 2D       '..-'
+        BCS     ZA14B                    ;A109: 25 40          '%@'
+        LDX     #SYSFCB                  ;A10B: CE A8 40       '..@'
+        LDAA    #$04                     ;A10E: 86 04          '..'
+        JSR     SETEXT                   ;A110: BD AD 33       '..3'
+        LDX     #SYSFCB                  ;A113: CE A8 40       '..@'
+        LDAA    #$01                     ;A116: 86 01          '..'
+        STAA    ,X                       ;A118: A7 00          '..'
+        JSR     FMS                      ;A11A: BD B4 06       '...'
+        BNE     ZA14F                    ;A11D: 26 30          '&0'
+        CLR     $1E,X                    ;A11F: 6F 1E          'o.'
+        LDAA    #$00                     ;A121: 86 00          '..'
+        STAA    $1F,X                    ;A123: A7 1F          '..'
+        LDAA    #$09                     ;A125: 86 09          '..'
+        STAA    ,X                       ;A127: A7 00          '..'
+        JSR     FMS                      ;A129: BD B4 06       '...'
+        BNE     ZA14F                    ;A12C: 26 21          '&!'
+        LDAA    $11,X                    ;A12E: A6 11          '..'
+        LDAB    $12,X                    ;A130: E6 12          '..'
+        STAA    $45,X                    ;A132: A7 45          '.E'
+        STAB    $46,X                    ;A134: E7 46          '.F'
+        LDAA    #$0A                     ;A136: 86 0A          '..'
+        STAA    ,X                       ;A138: A7 00          '..'
+        JSR     FMS                      ;A13A: BD B4 06       '...'
+        BEQ     ZA152                    ;A13D: 27 13          ''.'
+        LDAA    $01,X                    ;A13F: A6 01          '..'
+        CMPA    #$40                     ;A141: 81 40          '.@'
+        BNE     ZA14F                    ;A143: 26 0A          '&.'
+        LDAB    #$0B                     ;A145: C6 0B          '..'
+        STAB    $01,X                    ;A147: E7 01          '..'
+        BRA     ZA14F                    ;A149: 20 04          ' .'
+ZA14B   LDAB    #$15                     ;A14B: C6 15          '..'
+        STAB    $01,X                    ;A14D: E7 01          '..'
+ZA14F   JSR     RPTERR                   ;A14F: BD AD 3F       '..?'
+ZA152   JSR     FMSCLS                   ;A152: BD B4 03       '...'
+        JMP     WARMS                    ;A155: 7E AD 03       '~..'
+
+        END     START
+;/* Local Variables: */
+;/* mode:asm         */
+;/* End:             */
