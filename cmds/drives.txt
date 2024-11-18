@@ -1,0 +1,417 @@
+;***********************************************************
+;*   FDRIVES: 6800 VERSION
+;*
+;*       Author: Michael Evenson
+;*       Date:   03/16/2024
+;*
+;*   command line format
+;*       report current settings
+;*           drives<cr>
+;*
+;*       hard drive parameters
+;*           drive n t p d       n = logical drive
+;*                               t ype W or F            
+;*                               p = partition on hard drive
+;*                               d = physical strapped drive
+;*
+;*       floppy drive parameters
+;*           drive n t d         n = logical drive
+;*                               t = type W or F
+;*                               d = physical strapped drive
+;*
+;***********************************************************
+
+        LIB FLEXLIB.TXT
+;*
+;*   These are the offsets into the descrptor table per drive
+;*
+DISK    equ 0   ;* this is the type 0=flp 1=win
+DRVNO   equ 1   ;* this is the physical drive on the controller
+STEP    equ 2   ;* step rate - only for floppies = always 0
+INIT    equ 3   ;* 0 = not initialized?
+TTRKRG  equ 4   ;* last used track
+DENO    equ 5   ;* density mask - only for floppies - set to 2
+TPI     equ 6   ;* double step - only for floppies != 0 dbl step
+SPARE   equ 7   ;* used for the partition number on HD
+
+DESCTBL equ $BE11   ;* pointer to descriptor table
+
+        ORG $A100
+
+begin   bra     start
+
+LDRIVE  FCB     0
+TYPE    FCB     0
+PART    FDB     0
+PDRIVE  FCB     0
+
+XTEMP   FCB     0,0         ;* a place to put the partition #
+XPUSH   FDB     0           ;* a place to put X since we cannot push it
+
+start   jsr     getparm     ;* b=0 no errors, b=FF no params
+        cmp b   #$FF        ;* no params - just report
+        beq     shwdrvs     ;* show current drive descriptors
+
+        cmp b   #$00        ;* no error on parameters
+        bne     exit        ;* errors - just exit with shwprm
+
+        jsr     setcrvs     ;* go set the descriptor for drive
+        jmp     shwdrvs     ;* and show results
+;*
+;*       anything else just show the commadn line paramters
+;*       and exit
+;*
+exit    jsr     shwprm
+        jmp     WARMS
+;*
+;*       write a string to the consoel without cr/lf
+;*
+wrcons  psh     a
+        psh     b
+wrclp   lda a   0,x
+        cmp a   #$04        ;* terminator?
+        beq     wrcdone
+        jsr     PUTCHR
+        inx                 ;* leax    1,x         ;* bump pointer
+        bra     wrclp       ;* loop
+
+wrcdone pul b
+        pul a
+        rts
+
+;*
+;*       Show the current settings for all drives
+;*           but first see if FNETDRV is loaded
+;*           and if it is - set the pointer to
+;*           the drive letters (drvltrs) and net
+;*           drive array (ndarray).
+;*
+shwdrvs equ     *
+;*       jsr     search      ;* this checks for FNETDRV
+        clr b               ;* set B to 0
+nextcrv ldx     #drvmsg
+        jsr     wrcons      ;* output to console without crlf
+        psh b               ;* save logical drive number
+        add b   #$30
+        tba                 ;* tfr b,a put value in A for output
+        jsr     PUTCHR
+        pul b               ;* B has logical drive again
+        lda a   #$3A        ;* output a colon
+        jsr     PUTCHR
+        lda a   #$20
+        jsr     PUTCHR      ;* and a space
+;*
+;*       point to proper descriptor (B reg has logical drive number)
+;*
+        ldx     #DESCTBL    ;* drive descriptors table
+        psh a               ;* save A and B
+        psh b
+
+;*       simulate multipying B register by 8
+
+        aslb                ;* times 2
+        aslb                ;* times 4
+        aslb                ;* times 8
+abxlp1  beq     abxdn1
+        inx
+        decb
+        bra     abxlp1
+
+abxdn1  pul b
+        pul a               ;* restore A and B
+
+        stx     XPUSH       ;* psh x save descriptor pointer
+        ldx     #typmsg     ;* point to type message
+        jsr     wrcons
+        ldx     XPUSH       ;* puls x restore descriptor pointer
+        psh b               ;* save drive number
+;**
+;**   Comment this section out until we implement FLEXNet for the 6800
+;**
+;**       first we need to see if it is in the FNETDRV table
+;**
+;*        ldx     ndarray     ;* get pointer to netdrv array
+;*        cpx     #$0000      ;* is FLEXNet even loaded?
+;*        beq     notnet
+;*
+;*        lda a   b,x         ;* get this drive's indicator
+;*        cmp a   #$FF        ;* $FF indicates - not mounted
+;*        beq     notnet      ;* not a FLEXNet drive
+;**
+;**       this is a drive allocated to FLEXNet
+;**
+;*        ldx     #net
+;*        jsr     wrcons
+;*        pul b               ;* restore drive number
+;*        ldx     XPUSH       ;* puls x restore X
+;**
+;**   get the mounted drive filename. gmfn returns with X pointing to the filename
+;**   terminated with the $04 character. Entry is made with the drive number in the
+;**   A register
+;**
+;*        psh b               ;* save drive number
+;*        tba                 ;* tfr b,a put the drive number in A 
+;*        jsr     gmfn        ;* get the mounted drive filename
+;*        jsr     wrcons
+;*        pul b               ;* restore drive number
+;*        bra     nxtdrv
+;*
+notnet  pul b               ;* restore drive number
+        ldx     XPUSH       ;* puls x restore x
+        
+        lda a   DISK,x      ;* get drive type
+        cmp a   #$00        ;* is it hard drive?
+        bne     hdrive      ;* 0=FLOPPY  <>0 = WINCHESTER
+
+        stx     XPUSH       ;* pshs x save descriptor pointer
+        ldx     #flp
+        jsr     wrcons
+        ldx     XPUSH       ;* puls x restore descriptor pointer
+        bra     drnumb
+
+hdrive  stx     XPUSH       ;* pshs x
+        ldx     #win
+        jsr     wrcons
+        ldx     XPUSH       ;* puls x
+
+drnumb  lda a   #$20        ;* output a space
+        jsr     PUTCHR
+
+        stx     XPUSH       ;* pshs x save descriptor pointer
+        ldx     #physmsg    ;* point to drive number message
+        jsr     wrcons      ;* output it
+        ldx     XPUSH       ;* puls x restore descriptor pointer
+;*
+;*       get the physical drive number
+;*
+        lda a   DRVNO,X     ;* get physical drive number
+        add a   #$30        ;* make it printable ascii
+        jsr     PUTCHR
+        lda a   #$20        ;* then a space
+        jsr     PUTCHR
+;*
+;*       get partition number if hard drive
+;*
+        lda a   DISK,X      ;* get type for this drive
+        bne     shwpart     ;* if hard drive - show partition #
+
+        jsr     PCRLF       ;* otherwise we done with this drive
+        inc b               ;* next drive
+        cmp b   #4          ;* only 4 drive (0 - 3)
+        bge     shwdone     ;* if > 3 we are done
+        jmp     nextcrv
+
+shwpart stx     XPUSH       ;* pshs x save descriptor pointer
+        ldx     #partmsg
+        jsr     wrcons
+        ldx     XPUSH       ;* puls x restore descriptor pointer
+        lda a   SPARE,X     ;* this holds the HD partition #
+        sta a   XTEMP+1     ;* put in low byte of XTEMP
+;*
+;*       no need to save descriptor pointer
+;*       we are done with it for now.
+;*
+        psh b               ;* save logical drive number
+        clr b               ;* no leading spaces please
+        ldx     #XTEMP      ;* point to value to output      
+        jsr     OUTDEC      ;* output it
+        pul b               ;* restore logical drive number
+
+nxtdrv  inc b               ;* next drive
+        cmp b   #4          ;* are we done?
+        bge     shwdone
+
+        jsr     PCRLF
+        jmp     nextcrv
+;*
+;*   since this is the last thing we do - just exit to FLEX
+;*
+shwdone jsr     PCRLF
+        jmp     WARMS
+
+;*
+;*       set the values in the descriptor table
+;*
+setcrvs ldx     #DESCTBL    ;* drive descriptors table
+        lda a   LDRIVE      ;* get the logical drive to modify
+
+;*       simulate multipying A register by 8
+
+        asla                ;* times 2
+        asla                ;* times 4
+        asla                ;* times 8
+        tab                 ;* need the result in B for ABX simulation
+        cmpb    #$0
+
+abxlp2  beq     abxdn2
+        inx
+        decb
+        bra     abxlp2
+
+abxdn2  equ     *
+
+        lda a   TYPE        ;* get type user specified
+;*
+;*       this will be either W or F
+;*           make 0 or 1 respectively
+;*
+        lda b   #1          ;* default to HD
+        cmp a   #'W         ;* if HD, set 1 in DISK value
+        beq     settype
+
+        clr b               ;* set floppy
+settype sta b   DISK,X      ;* set in descriptor
+        tba                 ;* tfr b,a put the type in A
+;*
+;*       if the type is floppy, set DENO = 2
+;*
+        lda b   #0          ;* default to not floppy
+
+        cmp a   #0          ;* is it floppy?
+        bne     setdens     ;* no - leave B = 0
+
+        lda b   #2          ;* it is floppy so set DENS = 2
+setdens sta b   DENO,X      ;* set value in the 6th byte of desc
+
+        lda a   PART+1      ;* get the partition number (low byte)
+        sta a   SPARE,X     ;* set in the descriptor
+        lda a   PDRIVE      ;* get physical drive number
+        sta a   DRVNO,X     ;* set in descriptor
+        rts
+
+flp     fcc     "flp"
+        fcb     4
+win     fcc     "win"
+        fcb     4
+net     fcc     "net "
+        fcb     4
+drvmsg  fcc     "drive "
+        fcb     4
+
+shwprm  ldx     #ldmsg      ;* print Logical Drive message
+        jsr     PSTRNG
+        lda a   LDRIVE      ;* output logical drive number
+        add a   #$30
+        jsr     PUTCHR      ;* output the logical drive number
+        lda a   #$3A        ;* output a colon
+        ldx     #typmsg     ;* print Type message
+        jsr     PSTRNG
+        lda a   TYPE        ;* get the type in A
+        psh a
+        jsr     OUTCH       ;* send to the screen
+        pul a
+        cmp a   #'W
+        bne     showphy
+        ldx     #partmsg    ;* print Partition message
+        jsr     PSTRNG
+        ldx     #PART       ;* point X at the partition number in decimal
+        jsr     OUTDEC
+
+showphy ldx     #physmsg    ;* print Physical Drive message
+        jsr     PSTRNG
+        ldx     #PDRIVE     ;* point X at the physical drive number
+        jsr     OUTHEX      ;* output it to the console
+        rts
+
+ldmsg   fcc     'logical drive: '
+        fcb     $04
+typmsg  fcc     'type = '
+        fcb     $04
+partmsg fcc     'partition = '
+        fcb     $04
+physmsg fcc     'drive number = '
+        fcb     $04
+
+getparm jsr     PCRLF
+        ldx     CBUFPT      ;* get line pointer
+        lda a   0,x
+        cmp a   #$0D        ;* no parameters?
+        bne     getl        ;* we have params - get them
+
+        lda b   #$FF        ;* return no params to caller
+        rts
+;*
+;*       INDEC apparently consumes the space between 
+;*       the logical drive number and the type
+;*
+getl    jsr     INDEC       ;* get a decimal number from the cmd line
+
+;*       simulate tfr x,d             ;* it gets returned in the X register
+        stx     XPUSH
+        lda a   XPUSH
+        lda b   XPUSH+1
+
+        and b   #$03        ;* B register will have the low byte
+        sta b   LDRIVE      ;* save it as the logical drive number
+;*
+;*       so we can just get the next character. but
+;*       we are going to skip any extra spaces anyway
+;*
+gett    jsr     NXTCH       ;* get the type (W or F)
+        cmp a   #$0D
+        beq     prmerr      ;* oops - premature
+        cmp a   EOLCHR
+        beq     prmerr
+        cmp a   #$20        ;* space?
+        beq     gett        ;* yes - ignore it
+
+        and a   #$5F        ;* make upper case
+        sta a   TYPE        ;* save as type
+
+getphys jsr     NXTCH       ;* get the physical drive number
+        cmp a   #$0D
+        beq     prmerr
+        cmp a   EOLCHR
+        beq     prmerr
+        cmp a   #$20
+        beq     getphys     ;* skip spaces
+        cmp a   #$2C        ;* and commas
+        beq     getphys
+
+        and a   #$03        ;* only need the lower 2 bits
+        sta a   PDRIVE      ;* yes - save physical drive number
+;*
+;*       if this is a "W" we need to get the partition number
+;*
+        lda a   TYPE        ;* get the type
+        cmp a   #'W         ;* is this a hard drive
+        bne     done        ;* done with getting parameters
+;*
+;*       we need to use get dec here because the value
+;*       may be larger than 9
+;*
+getprt  ldx     CBUFPT      ;* get the current line pointer
+        lda a   0,x         ;* see if it's a space
+        cmp a   #$20        ;* skip spaces
+        bne     gpart
+        inx                 ;* leax    1,x         ;* bump pointer
+        stx     CBUFPT      ;* set new buffer pointer
+        bra     getprt      ;* loop past spaces
+;*
+;*       now we can call indec
+;*
+gpart   jsr     INDEC       ;* get partition number
+        bcs     badpart     ;* report bad partition number entered
+        stx     PART
+        bra     done        ;* get the physical drive number
+
+prmerr  lda b   #$01        ;* set error code for getparms
+        rts
+
+done    lda b   #$00        ;* set no error during getparms
+        rts
+
+badpart ldx     #bpmsg
+        jsr     PSTRNG
+        jmp     WARMS
+
+bpmsg   fcc     'Bad Partition specified'
+        fcb     $04
+
+;*        lib     ifnld.txt
+
+        end begin
+
+;/* Local Variables: */
+;/* mode:asm         */
+;/* End:             */
